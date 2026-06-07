@@ -1,1 +1,223 @@
+#!/usr/bin/hl
 
+using <gen 2>
+
+# <bit/toml-parser>
+
+::hr 60
+~> Hacker Lang — toml-parser showcase
+::hr 60
+::nl
+
+;; ── Przygotuj przykladowy plik TOML ──────────────────────────────────────────
+% _sample_toml = /tmp/sample_config.toml
+
+>> bash -c "cat > @_sample_toml << 'TOML'
+# Przykladowy plik konfiguracyjny TOML
+
+[project]
+name = \"MojAplikacja\"
+version = \"2.1.0\"
+debug = false
+max_connections = 100
+
+[server]
+host = \"localhost\"
+port = 8080
+tls = true
+workers = 4
+
+[database]
+host = \"db.local\"
+port = 5432
+name = \"mydb\"
+user = \"admin\"
+timeout = 30.5
+
+[logging]
+level = \"info\"
+file = \"/var/log/app.log\"
+rotate = true
+max_size = 50
+
+[[servers]]
+name = \"web1\"
+ip = \"192.168.1.10\"
+port = 80
+
+[[servers]]
+name = \"web2\"
+ip = \"192.168.1.11\"
+port = 80
+
+[features]
+flags = [\"auth\", \"api\", \"metrics\"]
+TOML"
+
+::green Stworzono: @_sample_toml
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 1. toml_validate — sprawdz poprawnosc
+::hr 40
+% _toml_file = @_sample_toml
+-- toml_validate
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 2. toml_get — pobierz wartosci
+::hr 40
+
+% _toml_file = @_sample_toml
+
+% _toml_key = project.name
+-- toml_get
+~> project.name     = @_toml_value
+
+% _toml_key = project.version
+-- toml_get
+~> project.version  = @_toml_value
+
+% _toml_key = project.debug
+-- toml_get
+~> project.debug    = @_toml_value
+
+% _toml_key = server.host
+-- toml_get
+~> server.host      = @_toml_value
+
+% _toml_key = server.port
+-- toml_get
+~> server.port      = @_toml_value
+
+% _toml_key = database.timeout
+-- toml_get
+~> database.timeout = @_toml_value
+
+% _toml_key = logging.level
+-- toml_get
+~> logging.level    = @_toml_value
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 3. toml_sections — lista sekcji
+::hr 40
+-- toml_sections
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 4. toml_keys — klucze w sekcji
+::hr 40
+% _toml_section = database
+~> Klucze w [database]:
+-- toml_keys
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 5. toml_dump_json — dump jako JSON
+::hr 40
+-- toml_dump_json
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 6. toml_load — zaladuj jako zmienne env
+::hr 40
+% _toml_prefix = APP
+-- toml_load
+::nl
+~> APP_SERVER_HOST   = @APP_SERVER_HOST
+~> APP_SERVER_PORT   = @APP_SERVER_PORT
+~> APP_DATABASE_NAME = @APP_DATABASE_NAME
+~> APP_PROJECT_DEBUG = @APP_PROJECT_DEBUG
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 7. toml_write — zapisz/zaktualizuj klucz
+::hr 40
+% _toml_key  = server.port
+% _toml_val  = 9090
+% _toml_type = int
+-- toml_write
+
+% _toml_key  = server.host
+% _toml_val  = production.example.com
+% _toml_type = string
+-- toml_write
+
+% _toml_key  = app.new_feature
+% _toml_val  = true
+% _toml_type = bool
+-- toml_write
+
+~> Po zapisie:
+% _toml_key = server.port
+-- toml_get
+~> server.port = @_toml_value
+
+% _toml_key = server.host
+-- toml_get
+~> server.host = @_toml_value
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 8. Praktyczny przyklad — czytanie konfiguracji serwera
+::hr 40
+
+: load_server_config def
+    % _toml_file = @_sample_toml
+
+    % _toml_key = server.host
+    -- toml_get
+    % server_host = @_toml_value
+
+    % _toml_key = server.port
+    -- toml_get
+    % server_port = @_toml_value
+
+    % _toml_key = server.tls
+    -- toml_get
+    % server_tls = @_toml_value
+
+    ~> Konfiguracja serwera:
+    ~>   Host:    @server_host
+    ~>   Port:    @server_port
+    ~>   TLS:     @server_tls
+done
+
+-- load_server_config
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 9. Warunkowe na podstawie wartosci TOML
+::hr 40
+
+% _toml_key = project.debug
+-- toml_get
+
+? switch @_toml_value
+| true
+    ::yellow Tryb debug WLACZONY
+| false
+    ::green Tryb debug wylaczony
+| *
+    ::cyan Debug: @_toml_value
+done
+::nl
+
+;; ─────────────────────────────────────────────────────────────────────────────
+::bold 10. For-in po sekcjach
+::hr 40
+
+~> Wszystkie sekcje:
+-- toml_sections |> @_all_sections
+
+@ sec in @_all_sections
+    ~>   → @sec
+done
+::nl
+
+;; Sprzatanie
+> rm -f @_sample_toml
+::hr 60
+~> toml-parser showcase zakonczony!
+::hr 60
