@@ -1,1 +1,236 @@
+#!/usr/bin/hl
 
+using <gen 2>
+
+% TOML_LOADED  = true
+% TOML_VERSION = 1.0.0
+% _toml_tmp    = /tmp/_hl_toml
+
+;; ── Wewnetrzny skrypt Python (zapisywany raz) ─────────────────────────────────
+: _toml_write_parser def
+    ::isdir @_toml_tmp
+    ? err
+        > mkdir -p @_toml_tmp
+    done
+    ::exists @_toml_tmp/parser.py
+    ? err
+        >> bash -c "cat > @_toml_tmp/parser.py << 'PYEOF'
+import sys, re, json, os
+
+def parse_toml(text):
+    data = {}; current = data; path_stack = []; array_tables = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#'): continue
+        m = re.match(r'^\[\[(.+?)\]\]$', line)
+        if m:
+            keys = [k.strip() for k in m.group(1).split('.')]
+            tbl_key = '.'.join(keys)
+            if tbl_key not in array_tables:
+                array_tables[tbl_key] = []
+            new_obj = {}; array_tables[tbl_key].append(new_obj)
+            d = data
+            for k in keys[:-1]: d = d.setdefault(k, {})
+            d[keys[-1]] = array_tables[tbl_key]
+            current = new_obj; continue
+        m = re.match(r'^\[(.+?)\]$', line)
+        if m:
+            keys = [k.strip() for k in m.group(1).split('.')]
+            d = data
+            for k in keys: d = d.setdefault(k, {})
+            current = d; continue
+        if '=' not in line: continue
+        k, _, v = line.partition('=')
+        k = k.strip(); v = v.strip()
+        if v.lower() == 'true': current[k] = True; continue
+        if v.lower() == 'false': current[k] = False; continue
+        if (v.startswith('\"\"\"') and v.endswith('\"\"\"')) or (v.startswith(\"'''\") and v.endswith(\"'''\")): current[k] = v[3:-3]; continue
+        if v.startswith('\"') and v.endswith('\"'): current[k] = v[1:-1]; continue
+        if v.startswith(\"'\") and v.endswith(\"'\"): current[k] = v[1:-1]; continue
+        if v.startswith('['):
+            items = []
+            for part in re.findall(r'\"([^\"]*)\"|(\d+\.\d+)|(\d+)|(true|false)', v):
+                s,f,i,b = part
+                if s: items.append(s)
+                elif f: items.append(float(f))
+                elif i: items.append(int(i))
+                elif b: items.append(b=='true')
+            current[k] = items; continue
+        try:
+            current[k] = float(v) if '.' in v else int(v)
+        except:
+            current[k] = v
+    return data
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else 'get'
+fname = sys.argv[2] if len(sys.argv) > 2 else ''
+
+if not fname or not os.path.exists(fname):
+    print('', end=''); sys.exit(0)
+
+with open(fname) as f:
+    data = parse_toml(f.read())
+
+if cmd == 'get':
+    flat_key = sys.argv[3] if len(sys.argv) > 3 else ''
+    parts = flat_key.split('.') if flat_key else []
+    val = data
+    for p in parts:
+        if isinstance(val, dict): val = val.get(p, '')
+        else: val = ''; break
+    if isinstance(val, (dict, list)): print(json.dumps(val), end='')
+    else: print('' if val is None else str(val), end='')
+
+elif cmd == 'sections':
+    for k, v in data.items():
+        if isinstance(v, dict): print(k)
+
+elif cmd == 'keys':
+    section = sys.argv[3] if len(sys.argv) > 3 else ''
+    d = data.get(section, data) if section else data
+    if isinstance(d, dict):
+        for k in d: print(k)
+
+elif cmd == 'dump':
+    print(json.dumps(data, indent=2))
+
+elif cmd == 'flat':
+    def flatten(obj, prefix=''):
+        result = {}
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                new_key = f'{prefix}.{k}' if prefix else k
+                result.update(flatten(v, new_key))
+        elif isinstance(obj, list):
+            result[prefix] = json.dumps(obj)
+        else:
+            result[prefix] = '' if obj is None else str(obj)
+        return result
+    prefix = sys.argv[3] if len(sys.argv) > 3 else ''
+    for k, v in flatten(data, prefix).items():
+        safe_k = re.sub(r'[^a-zA-Z0-9_]', '_', k).upper()
+        safe_v = str(v).replace(\"'\", \"'\\\\''\")
+        print(f\"export {safe_k}='{safe_v}'\")
+PYEOF"
+    done
+done
+
+;; ── toml_get — pobierz wartosc przez klucz (section.key) ─────────────────────
+;; Uzycie:
+;;   % _toml_file = config.toml
+;;   % _toml_key  = database.host
+;;   -- toml_get
+;;   ;; Wynik: @_toml_value
+: toml_get def
+    -- _toml_write_parser
+    >> python3 @_toml_tmp/parser.py get @_toml_file @_toml_key |> @_toml_value
+done
+
+;; ── toml_load — zaladuj caly TOML jako zmienne env ───────────────────────────
+;; Uzycie:
+;;   % _toml_file   = config.toml
+;;   % _toml_prefix = CFG
+;;   -- toml_load
+;;   ;; Efekt: CFG_DATABASE_HOST=wartosc etc.
+: toml_load def
+    -- _toml_write_parser
+    ::exists @_toml_file
+    ? err
+        ::red [toml] Plik nie istnieje: @_toml_file
+        > exit 1
+    done
+    >> python3 @_toml_tmp/parser.py flat @_toml_file @_toml_prefix > @_toml_tmp/vars.sh
+    > bash @_toml_tmp/vars.sh
+    ? ok
+        ::green [toml] Zaladowano: @_toml_file
+    done
+    ? err
+        ::red [toml] Blad ladowania: @_toml_file
+    done
+done
+
+;; ── toml_sections — wypisz sekcje ────────────────────────────────────────────
+: toml_sections def
+    -- _toml_write_parser
+    >> python3 @_toml_tmp/parser.py sections @_toml_file
+done
+
+;; ── toml_keys — wypisz klucze sekcji ─────────────────────────────────────────
+;; % _toml_section = database && -- toml_keys
+: toml_keys def
+    -- _toml_write_parser
+    >> python3 @_toml_tmp/parser.py keys @_toml_file @_toml_section
+done
+
+;; ── toml_dump_json — wypisz jako JSON ────────────────────────────────────────
+: toml_dump_json def
+    -- _toml_write_parser
+    >> python3 @_toml_tmp/parser.py dump @_toml_file
+done
+
+;; ── toml_validate — sprawdz poprawnosc ───────────────────────────────────────
+: toml_validate def
+    ::exists @_toml_file
+    ? err
+        ::red [toml] Plik nie istnieje: @_toml_file
+        > exit 1
+    done
+    -- _toml_write_parser
+    >> python3 @_toml_tmp/parser.py get @_toml_file ""
+    ? ok
+        ::green [toml] OK: @_toml_file
+    done
+    ? err
+        ::red [toml] Blad parsowania: @_toml_file
+        > exit 1
+    done
+done
+
+;; ── toml_write — zapisz/zaktualizuj klucz w pliku TOML ───────────────────────
+;; Uzycie:
+;;   % _toml_file = config.toml
+;;   % _toml_key  = server.port
+;;   % _toml_val  = 8080
+;;   % _toml_type = int   ;; string / int / float / bool
+;;   -- toml_write
+: toml_write def
+    >> python3 -c "
+import re, os, sys
+
+fname  = '@_toml_file'
+fkey   = '@_toml_key'
+val_r  = '@_toml_val'
+typ    = '@_toml_type'
+
+parts = fkey.rsplit('.', 1)
+section = parts[0] if len(parts) == 2 else ''
+key     = parts[-1]
+
+if   typ == 'string': val = f'\"@_toml_val\"'
+elif typ == 'bool'  : val = 'true' if val_r.lower() in ('true','1','yes') else 'false'
+elif typ == 'float' : val = str(float(val_r))
+else:
+    try:    val = str(int(val_r))
+    except: val = f'\"@_toml_val\"'
+
+lines = open(fname).readlines() if os.path.exists(fname) else []
+in_sec = not section; found_sec = False; found_key = False; insert = len(lines)
+
+for i, line in enumerate(lines):
+    t = line.strip()
+    if section and re.match(r'^\[' + re.escape(section) + r'\]', t):
+        in_sec = True; found_sec = True; insert = i + 1; continue
+    if in_sec and re.match(r'^\[', t) and not re.match(r'^\[' + re.escape(section) + r'\]', t):
+        insert = i; in_sec = False; continue
+    if in_sec and re.match(rf'^{re.escape(key)}\s*=', t):
+        lines[i] = f'{key} = {val}\n'; found_key = True
+
+if not found_key:
+    if not found_sec and section:
+        lines.append(f'\n[{section}]\n'); insert = len(lines)
+    lines.insert(insert, f'{key} = {val}\n')
+
+with open(fname, 'w') as f: f.writelines(lines)
+print(f'[toml] {fkey} = {val}')
+"
+done
