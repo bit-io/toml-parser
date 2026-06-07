@@ -1,0 +1,51 @@
+#!/usr/bin/hl
+
+using <gen 2>
+
+# <bit/toml-parser>
+
+% _services_cfg = /tmp/services.toml
+>> bash -c "cat > @_services_cfg << 'T'
+[nginx]
+enabled = true
+port = 80
+workers = 4
+config = \"/etc/nginx/nginx.conf\"
+
+[postgres]
+enabled = true
+port = 5432
+max_conn = 100
+data_dir = \"/var/lib/postgresql\"
+
+[redis]
+enabled = false
+port = 6379
+max_mem = \"256mb\"
+T"
+
+~> Menedzer serwisow HackerOS
+::hr 40
+
+;; Sprawdz kazdy serwis
+@ service in nginx postgres redis
+    % _toml_file = @_services_cfg
+    % _toml_key = @service.enabled
+    -- toml_get
+    % _svc_enabled = @_toml_value
+
+    % _toml_key = @service.port
+    -- toml_get
+    % _svc_port = @_toml_value
+
+    > test "@_svc_enabled" = "True"
+    ? ok
+        ~> @service [@_svc_port] — AKTYWNY
+    done
+    ? err
+        ~> @service [@_svc_port] — wylaczony
+    done
+done
+
+::hr 40
+> rm -f @_services_cfg
