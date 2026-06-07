@@ -1,0 +1,30 @@
+#!/usr/bin/hl
+
+using <gen 2>
+
+# <bit/toml-parser>
+
+;; Stworz prosty config
+% _cfg = /tmp/quick.toml
+>> bash -c "printf '[app]\nname = \"Hacker\"\nversion = 3\ndebug = true\n\n[db]\nhost = \"localhost\"\nport = 5432\n' > @_cfg"
+
+% _toml_file = @_cfg
+
+;; Pobierz wartosci
+% _toml_key = app.name
+-- toml_get
+~> Aplikacja: @_toml_value
+
+% _toml_key = db.port
+-- toml_get
+~> Port bazy: @_toml_value
+
+;; Sprawdz debug
+% _toml_key = app.debug
+-- toml_get
+> test "@_toml_value" = "True"
+? ok
+    ::yellow Tryb debug aktywny
+done
+
+> rm -f @_cfg
