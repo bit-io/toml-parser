@@ -1,0 +1,13 @@
+[project]
+-> name    => toml-parser
+-> version => 1.0.0
+-> author  => bit-io
+-> entry   => source-code/main.hl
+-> type    => hl
+-> license => MIT
+
+[dependencies]
+! python3 jest wymagane (wbudowane w HackerOS)
+
+[build]
+-> target => hl
